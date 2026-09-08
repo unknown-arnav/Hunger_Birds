@@ -84,6 +84,56 @@ Android emulator, localhost on the host machine is `http://10.0.2.2:8000`.
 
 Tests: `flutter test` in either app, `flutter analyze` for lints.
 
+## Building installable APKs
+
+Sideloading is the practical way to get these onto phones on campus — no Play
+Store account needed. Android only; iOS requires a $99/yr Apple Developer
+account even for TestFlight.
+
+### One-time: create a release keystore
+
+Do this once, on your own machine. The same keystore signs **both** apps.
+
+```bash
+keytool -genkey -v -keystore ~/hungerbirds-release.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias hungerbirds
+```
+
+Then, in **each** app, copy `android/key.properties.example` to
+`android/key.properties` and fill in the password, alias, and absolute path to
+the `.jks`. Both files are gitignored and must stay that way.
+
+> **Back up the `.jks` file and its passwords somewhere permanent.** Android
+> identifies an app by its signing key. If you lose the keystore, you cannot
+> ship an update to an already-installed app — every user has to uninstall and
+> reinstall, losing their login. There is no recovery path.
+
+Without `key.properties`, release builds silently fall back to the debug key.
+That's fine for `flutter run --release` on your own device, but never hand out
+a debug-signed APK: the debug key differs per machine, so the same
+uninstall/reinstall trap applies.
+
+### Build
+
+```bash
+cd apps/customer_app     # then repeat for apps/merchant_app
+flutter build apk --release --split-per-abi \
+  --dart-define=API_BASE_URL=https://api-production-0f01.up.railway.app
+```
+
+Output lands in `build/app/outputs/flutter-apk/`. Hand out
+**`app-arm64-v8a-release.apk`** — essentially every phone from the last several
+years is arm64. `--split-per-abi` keeps it ~10–15MB instead of one ~40MB fat
+APK.
+
+Confirm it's signed with your release key, not the debug key:
+
+```bash
+apksigner verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+```
+
+Recipients need to allow "install from unknown sources" when opening the file.
+
 ## Deployment (Railway)
 
 Live API: `https://api-production-0f01.up.railway.app`

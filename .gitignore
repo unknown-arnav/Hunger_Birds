@@ -18,6 +18,12 @@ packages/**/.dart_tool/
 packages/**/build/
 *.iml
 
+# Android release signing - NEVER commit these. Losing the keystore means you
+# can no longer ship in-place updates to already-installed apps.
+apps/**/android/key.properties
+*.jks
+*.keystore
+
 # OS
 .DS_Store
 
