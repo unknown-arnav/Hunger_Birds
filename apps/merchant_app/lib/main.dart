@@ -1,0 +1,60 @@
+import 'package:flutter/material.dart';
+import 'package:hb_shared/hb_shared.dart';
+import 'package:provider/provider.dart';
+
+import 'app_config.dart';
+import 'screens/apply_screen.dart';
+import 'screens/dashboard_screen.dart';
+import 'screens/pending_approval_screen.dart';
+import 'state/merchant_state.dart';
+
+void main() {
+  final authStorage = AuthStorage();
+  final api = ApiClient(baseUrl: AppConfig.apiBaseUrl, authStorage: authStorage);
+
+  runApp(
+    MultiProvider(
+      providers: [
+        Provider<ApiClient>.value(value: api),
+        ChangeNotifierProvider(create: (_) => MerchantState(api)..bootstrap()),
+      ],
+      child: const MerchantApp(),
+    ),
+  );
+}
+
+class MerchantApp extends StatelessWidget {
+  const MerchantApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Hunger Birds Partner',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light(),
+      home: const MerchantGate(),
+    );
+  }
+}
+
+class MerchantGate extends StatelessWidget {
+  const MerchantGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final merchant = context.watch<MerchantState>();
+    return switch (merchant.stage) {
+      MerchantStage.loading => const SplashScreen(),
+      MerchantStage.loggedOut => HbLoginScreen(
+          api: context.read<ApiClient>(),
+          logo: Icons.storefront,
+          headline: 'Run your stall on Hunger Birds',
+          subtitle: "Sign in with your BIT Mesra email. We'll send you a 6-digit code.",
+          onVerified: merchant.onAuthenticated,
+        ),
+      MerchantStage.needsApplication => const ApplyScreen(),
+      MerchantStage.awaitingApproval => const PendingApprovalScreen(),
+      MerchantStage.ready => const DashboardScreen(),
+    };
+  }
+}

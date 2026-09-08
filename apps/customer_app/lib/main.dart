@@ -4,8 +4,6 @@ import 'package:provider/provider.dart';
 
 import 'app_config.dart';
 import 'screens/home/main_shell.dart';
-import 'screens/login/email_screen.dart';
-import 'screens/splash_screen.dart';
 import 'state/auth_state.dart';
 import 'state/cart_state.dart';
 
@@ -44,10 +42,15 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = context.watch<AuthState>().status;
-    return switch (status) {
+    final auth = context.watch<AuthState>();
+    return switch (auth.status) {
       AuthStatus.unknown => const SplashScreen(),
-      AuthStatus.loggedOut => const EmailScreen(),
+      AuthStatus.loggedOut => HbLoginScreen(
+          api: context.read<ApiClient>(),
+          headline: 'Order from your campus stalls',
+          subtitle: "Sign in with your BIT Mesra email. We'll send you a 6-digit code.",
+          onVerified: auth.applyAuthResult,
+        ),
       AuthStatus.loggedIn => const MainShell(),
     };
   }

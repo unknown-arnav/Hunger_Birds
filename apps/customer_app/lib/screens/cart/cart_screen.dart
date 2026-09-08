@@ -3,7 +3,6 @@ import 'package:hb_shared/hb_shared.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/cart_state.dart';
-import '../../widgets/empty_state.dart';
 import '../orders/order_tracking_screen.dart';
 
 class CartScreen extends StatefulWidget {

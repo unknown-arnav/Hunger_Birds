@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:hb_shared/hb_shared.dart';
 import 'package:provider/provider.dart';
 
-import '../../widgets/empty_state.dart';
 import '../../widgets/vendor_card.dart';
 import '../vendor/vendor_detail_screen.dart';
 

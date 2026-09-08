@@ -28,10 +28,7 @@ class AuthState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<OtpRequestResult> requestOtp(String email) => api.requestOtp(email);
-
-  Future<void> verifyOtp(String email, String code) async {
-    final result = await api.verifyOtp(email, code);
+  Future<void> applyAuthResult(AuthResult result) async {
     currentUser = result.user;
     status = AuthStatus.loggedIn;
     notifyListeners();

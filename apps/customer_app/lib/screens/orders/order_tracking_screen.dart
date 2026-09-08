@@ -6,7 +6,6 @@ import 'package:hb_shared/hb_shared.dart';
 import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import '../../widgets/empty_state.dart';
 import '../../widgets/order_status_timeline.dart';
 
 class OrderTrackingScreen extends StatefulWidget {

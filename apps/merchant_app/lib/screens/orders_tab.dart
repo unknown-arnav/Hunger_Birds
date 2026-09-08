@@ -1,0 +1,284 @@
+import 'package:flutter/material.dart';
+import 'package:hb_shared/hb_shared.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../state/merchant_state.dart';
+import '../state/orders_state.dart';
+
+class OrdersTab extends StatelessWidget {
+  const OrdersTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ordersState = context.watch<OrdersState>();
+    final merchant = context.watch<MerchantState>();
+    final isOpen = merchant.vendor?.isOpen ?? false;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Orders'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              children: [
+                Text(
+                  isOpen ? 'Open' : 'Closed',
+                  style: TextStyle(
+                    color: isOpen ? AppTheme.success : AppTheme.textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                Switch(
+                  value: isOpen,
+                  activeThumbColor: AppTheme.success,
+                  onChanged: (value) => context.read<MerchantState>().setOpen(value),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: _buildBody(context, ordersState),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, OrdersState state) {
+    if (state.loading) {
+      return const Center(child: CircularProgressIndicator(color: AppTheme.primaryRed));
+    }
+    if (state.error != null) {
+      return ErrorRetry(message: state.error.toString(), onRetry: state.load);
+    }
+
+    final active = state.activeOrders;
+    final past = state.pastOrders;
+
+    if (active.isEmpty && past.isEmpty) {
+      return const EmptyState(
+        icon: Icons.receipt_long_outlined,
+        title: 'No orders yet',
+        message: 'New orders from students land here the moment they are placed.',
+      );
+    }
+
+    return RefreshIndicator(
+      color: AppTheme.primaryRed,
+      onRefresh: state.load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        children: [
+          if (active.isNotEmpty) ...[
+            const _SectionTitle('Live orders'),
+            for (final order in active) ...[
+              _OrderCard(order: order, live: true),
+              const SizedBox(height: 12),
+            ],
+          ],
+          if (past.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const _SectionTitle('Past orders'),
+            for (final order in past) ...[
+              _OrderCard(order: order, live: false),
+              const SizedBox(height: 12),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String text;
+
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10, top: 4),
+        child: Text(text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+      );
+}
+
+class _OrderCard extends StatefulWidget {
+  final Order order;
+  final bool live;
+
+  const _OrderCard({required this.order, required this.live});
+
+  @override
+  State<_OrderCard> createState() => _OrderCardState();
+}
+
+class _OrderCardState extends State<_OrderCard> {
+  bool _busy = false;
+
+  Future<void> _move(OrderStatus status) async {
+    setState(() => _busy = true);
+    try {
+      await context.read<OrdersState>().updateStatus(widget.order, status);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = widget.order;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _StatusChip(status: order.status),
+                const Spacer(),
+                Text(
+                  DateFormat('d MMM, h:mm a').format(order.createdAt.toLocal()),
+                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            for (final item in order.items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Text('${item.quantity}x ', style: const TextStyle(fontWeight: FontWeight.w800)),
+                    Expanded(child: Text(item.nameSnapshot)),
+                    Text('₹${(item.priceSnapshot * item.quantity).toStringAsFixed(0)}'),
+                  ],
+                ),
+              ),
+            if (order.note != null && order.note!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Note: ${order.note}',
+                  style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+                ),
+              ),
+            ],
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1),
+            ),
+            Row(
+              children: [
+                Text(
+                  'Collect ₹${order.totalAmount.toStringAsFixed(0)} in cash',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ],
+            ),
+            if (widget.live) ...[
+              const SizedBox(height: 12),
+              _actions(order),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actions(Order order) {
+    if (_busy) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(6),
+          child: SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(color: AppTheme.primaryRed, strokeWidth: 2.5),
+          ),
+        ),
+      );
+    }
+
+    return switch (order.status) {
+      OrderStatus.placed => Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => _move(OrderStatus.rejected),
+                child: const Text('Reject'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => _move(OrderStatus.accepted),
+                child: const Text('Accept'),
+              ),
+            ),
+          ],
+        ),
+      OrderStatus.accepted => SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _move(OrderStatus.preparing),
+            child: const Text('Start preparing'),
+          ),
+        ),
+      OrderStatus.preparing => SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _move(OrderStatus.ready),
+            child: const Text('Mark ready for pickup'),
+          ),
+        ),
+      OrderStatus.ready => SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () => _move(OrderStatus.completed),
+            child: const Text('Mark completed'),
+          ),
+        ),
+      _ => const SizedBox.shrink(),
+    };
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  final OrderStatus status;
+
+  const _StatusChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      OrderStatus.completed || OrderStatus.ready || OrderStatus.accepted => AppTheme.success,
+      OrderStatus.placed || OrderStatus.preparing => AppTheme.warning,
+      OrderStatus.rejected => AppTheme.primaryRed,
+      OrderStatus.cancelled => AppTheme.textSecondary,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        status.label,
+        style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+    );
+  }
+}
