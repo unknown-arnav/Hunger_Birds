@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +27,20 @@ class Settings(BaseSettings):
     cloudinary_upload_folder: str = "hunger_birds"
 
     cors_origins: str = "*"
+
+    @field_validator("database_url")
+    @classmethod
+    def use_async_driver(cls, value: str) -> str:
+        """Railway (and most hosts) inject a plain postgres:// URL, but the
+        async engine needs the asyncpg driver spelled out."""
+        for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
+            if value.startswith(prefix):
+                return value
+        if value.startswith("postgres://"):
+            return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
