@@ -8,6 +8,7 @@ from app.modules.media.router import router as media_router
 from app.modules.menu.router import router as menu_router
 from app.modules.orders.router import router as orders_router
 from app.modules.orders.router import vendor_orders_router
+from app.modules.realtime.router import router as realtime_router
 from app.modules.vendors.router import router as vendors_router
 
 settings = get_settings()
@@ -29,6 +30,7 @@ app.include_router(admin_router)
 app.include_router(media_router)
 app.include_router(orders_router)
 app.include_router(vendor_orders_router)
+app.include_router(realtime_router)
 
 
 @app.get("/health")
