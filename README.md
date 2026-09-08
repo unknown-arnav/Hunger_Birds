@@ -86,12 +86,22 @@ Tests: `flutter test` in either app, `flutter analyze` for lints.
 
 ## Deployment (Railway)
 
+Live API: `https://api-production-0f01.up.railway.app`
+
+Point either app at it:
+
+```bash
+flutter run --dart-define=API_BASE_URL=https://api-production-0f01.up.railway.app
+```
+
 The backend deploys from this repo with no Dockerfile — Railway's builder
 detects Python from `requirements.txt`. The service is configured with:
 
 - **Root directory** `/backend` (the repo also holds the Flutter apps)
-- **Start command** `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- **Healthcheck** `/health`
+- **Pre-deploy** `alembic upgrade head` (runs once per deploy, not per replica)
+- **Start command** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- **Healthcheck** `/health/ready` — fails the deploy unless Postgres and Redis
+  both answer, so a bad release never takes traffic
 
 Alongside it run a Postgres and a Redis service. Required variables on the API
 service:
