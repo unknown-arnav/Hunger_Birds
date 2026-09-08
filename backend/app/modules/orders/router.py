@@ -1,0 +1,176 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.core.deps import get_current_user
+from app.core.redis import get_redis
+from app.db.models.menu import MenuItem
+from app.db.models.order import Order, OrderItem, OrderStatus
+from app.db.models.user import User, UserRole
+from app.db.models.vendor import Vendor
+from app.db.session import get_db
+from app.modules.orders.schemas import OrderCreate, OrderOut, OrderStatusUpdate
+from app.modules.orders.service import can_transition, publish_order_event
+from app.modules.vendors.deps import get_own_vendor
+
+router = APIRouter(prefix="/orders", tags=["orders"])
+vendor_orders_router = APIRouter(prefix="/vendors/me/orders", tags=["orders"])
+
+
+async def _load_order_with_items(order_id: uuid.UUID, db: AsyncSession) -> Order | None:
+    result = await db.execute(
+        select(Order).where(Order.id == order_id).options(selectinload(Order.items))
+    )
+    return result.scalar_one_or_none()
+
+
+@router.post("", response_model=OrderOut, status_code=status.HTTP_201_CREATED)
+async def place_order(
+    payload: OrderCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+) -> OrderOut:
+    vendor = await db.get(Vendor, payload.vendor_id)
+    if vendor is None or not vendor.is_approved:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Vendor not found")
+    if not vendor.is_open:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This vendor is currently closed")
+
+    order = Order(customer_id=user.id, vendor_id=vendor.id, note=payload.note, total_amount=0)
+    total = 0
+    for line in payload.items:
+        result = await db.execute(
+            select(MenuItem).where(
+                MenuItem.id == line.menu_item_id,
+                MenuItem.vendor_id == vendor.id,
+                MenuItem.is_available.is_(True),
+            )
+        )
+        menu_item = result.scalar_one_or_none()
+        if menu_item is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Menu item {line.menu_item_id} is not available from this vendor",
+            )
+        line_total = menu_item.price * line.quantity
+        total += line_total
+        order.items.append(
+            OrderItem(
+                menu_item_id=menu_item.id,
+                name_snapshot=menu_item.name,
+                price_snapshot=menu_item.price,
+                quantity=line.quantity,
+            )
+        )
+
+    order.total_amount = total
+    db.add(order)
+    await db.commit()
+
+    order = await _load_order_with_items(order.id, db)
+    await publish_order_event(redis, order)
+    return OrderOut.model_validate(order)
+
+
+@router.get("", response_model=list[OrderOut])
+async def list_my_orders(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[OrderOut]:
+    result = await db.execute(
+        select(Order)
+        .where(Order.customer_id == user.id)
+        .options(selectinload(Order.items))
+        .order_by(Order.created_at.desc())
+    )
+    return [OrderOut.model_validate(o) for o in result.scalars().all()]
+
+
+async def _get_order_for_user(order_id: uuid.UUID, user: User, db: AsyncSession) -> Order:
+    order = await _load_order_with_items(order_id, db)
+    if order is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+
+    is_owner_customer = order.customer_id == user.id
+    is_owner_vendor = False
+    if user.role == UserRole.VENDOR:
+        result = await db.execute(select(Vendor).where(Vendor.user_id == user.id))
+        vendor = result.scalar_one_or_none()
+        is_owner_vendor = vendor is not None and vendor.id == order.vendor_id
+
+    if not (is_owner_customer or is_owner_vendor or user.role == UserRole.ADMIN):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+    return order
+
+
+@router.get("/{order_id}", response_model=OrderOut)
+async def get_order(
+    order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> OrderOut:
+    order = await _get_order_for_user(order_id, user, db)
+    return OrderOut.model_validate(order)
+
+
+@router.post("/{order_id}/cancel", response_model=OrderOut)
+async def cancel_order(
+    order_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+) -> OrderOut:
+    order = await _get_order_for_user(order_id, user, db)
+    if order.customer_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the customer can cancel this order")
+    if not can_transition(order.status, OrderStatus.CANCELLED):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Cannot cancel an order that is already {order.status.value}"
+        )
+    order.status = OrderStatus.CANCELLED
+    await db.commit()
+    order = await _load_order_with_items(order.id, db)
+    await publish_order_event(redis, order)
+    return OrderOut.model_validate(order)
+
+
+@vendor_orders_router.get("", response_model=list[OrderOut])
+async def list_vendor_orders(
+    vendor: Vendor = Depends(get_own_vendor), db: AsyncSession = Depends(get_db)
+) -> list[OrderOut]:
+    result = await db.execute(
+        select(Order)
+        .where(Order.vendor_id == vendor.id)
+        .options(selectinload(Order.items))
+        .order_by(Order.created_at.desc())
+    )
+    return [OrderOut.model_validate(o) for o in result.scalars().all()]
+
+
+@vendor_orders_router.patch("/{order_id}/status", response_model=OrderOut)
+async def update_order_status(
+    order_id: uuid.UUID,
+    payload: OrderStatusUpdate,
+    vendor: Vendor = Depends(get_own_vendor),
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+) -> OrderOut:
+    order = await _load_order_with_items(order_id, db)
+    if order is None or order.vendor_id != vendor.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Order not found")
+
+    if not can_transition(order.status, payload.status):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot move an order from {order.status.value} to {payload.status.value}",
+        )
+
+    order.status = payload.status
+    await db.commit()
+    order = await _load_order_with_items(order.id, db)
+    await publish_order_event(redis, order)
+    return OrderOut.model_validate(order)
