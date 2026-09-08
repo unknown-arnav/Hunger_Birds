@@ -1,0 +1,22 @@
+# Python / backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.env
+*.pyc
+
+# Flutter
+apps/**/.dart_tool/
+apps/**/.flutter-plugins
+apps/**/.flutter-plugins-dependencies
+apps/**/build/
+apps/**/.packages
+apps/**/ios/Pods/
+apps/**/ios/.symlinks/
+apps/**/android/.gradle/
+packages/**/.dart_tool/
+packages/**/build/
+*.iml
+
+# OS
+.DS_Store
