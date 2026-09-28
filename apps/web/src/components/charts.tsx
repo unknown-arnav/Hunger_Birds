@@ -151,13 +151,13 @@ export function TimeSeries({
                   strokeWidth={1}
                   strokeDasharray="3 3"
                 />
-                {/* 2px surface ring so the marker reads against the line. */}
+                {/* 2px ring in the card fill, so the marker reads against the line. */}
                 <circle
                   cx={x(active)}
                   cy={y(points[active].value)}
                   r={5}
                   fill={SERIES}
-                  stroke="#FFFFFF"
+                  stroke="#1C1C1C"
                   strokeWidth={2}
                 />
               </g>
@@ -182,14 +182,14 @@ export function TimeSeries({
 
       {active !== null && (
         <div
-          className="pointer-events-none absolute z-10 rounded-md bg-on-surface px-space-sm py-space-xs text-body-sm text-white shadow-lg"
+          className="pointer-events-none absolute z-10 rounded-md border border-outline bg-surface-container-high px-space-sm py-space-xs text-body-sm text-on-surface shadow-sheet"
           style={{
             left: Math.min(Math.max(pad.left + x(active) - 60, 0), Math.max(width - 130, 0)),
             top: 0,
           }}
           role="status"
         >
-          <div className="text-white/70">{points[active].label}</div>
+          <div className="text-on-surface-variant">{points[active].label}</div>
           <div className="font-medium">
             {points[active].display ?? formatValue(points[active].value)}
           </div>

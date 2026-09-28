@@ -9,12 +9,20 @@
     padding: 0;
   }
 
+  html {
+    /* Tells the browser to render form controls, scrollbars and the address
+       bar dark. Without it a native <select> drops a white menu onto a black
+       page, which is the usual giveaway that a theme was painted on top of a
+       light one rather than switched. */
+    color-scheme: dark;
+  }
+
   body {
     @apply bg-surface text-on-surface font-sans text-body-md antialiased;
     overscroll-behavior: none;
   }
 
-  /* Material Symbols, used throughout the mockups for iconography. */
+  /* Material Symbols, used throughout for iconography. */
   .material-symbols-outlined {
     font-family: 'Material Symbols Outlined';
     font-weight: normal;
@@ -29,52 +37,100 @@
     -webkit-font-feature-settings: 'liga';
     -webkit-font-smoothing: antialiased;
   }
+
+  /* Keyboard focus has to survive the dark repaint. The default UA ring is a
+     thin blue that all but disappears on #0D0D0D, so it is replaced with the
+     brand red at a weight that is visible against every surface in the ramp. */
+  :focus-visible {
+    outline: 2px solid theme('colors.primary');
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 @layer components {
-  /* Primary CTA: pill, 48px, per the spec's Buttons section. */
   .btn-primary {
-    @apply inline-flex h-12 items-center justify-center gap-space-sm rounded-full bg-primary px-space-lg
+    @apply inline-flex h-12 items-center justify-center gap-space-sm rounded-xl bg-primary px-space-lg
            text-label-lg text-on-primary transition-colors hover:bg-primary-hover
            disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* The outlined red button Zomato uses for the secondary action in a pair. */
   .btn-secondary {
-    @apply inline-flex h-12 items-center justify-center gap-space-sm rounded-full bg-primary-tint px-space-lg
-           text-label-lg text-primary transition-colors hover:bg-[#FFCDD2]
+    @apply inline-flex h-12 items-center justify-center gap-space-sm rounded-xl border border-primary/50
+           bg-primary-tint px-space-lg text-label-lg text-primary transition-colors
+           hover:border-primary hover:bg-primary/20
            disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-space-sm rounded px-space-md py-space-sm
-           text-label-lg text-on-surface transition-colors hover:bg-surface-container;
+           text-label-lg text-on-surface-medium transition-colors hover:bg-surface-container
+           hover:text-on-surface;
   }
 
-  /* Card level (1dp) from the elevation scale. */
+  /* One step up the surface ramp, with a hairline so cards still separate
+     where they sit against a container of the same fill. */
   .card {
-    @apply rounded-lg border border-outline-variant bg-surface-container-lowest shadow-card;
+    @apply rounded-lg border border-outline-variant bg-surface-container-lowest;
   }
 
-  /* 48px field, container fill, red focus ring. */
   .field {
-    @apply h-12 w-full rounded bg-surface-container px-space-md text-body-md text-on-surface
-           placeholder:text-on-surface-variant focus:bg-surface-container-lowest focus:outline-none
-           focus:ring-[1.5px] focus:ring-primary;
+    @apply h-12 w-full rounded-xl border border-outline bg-surface-container-lowest px-space-md
+           text-body-md text-on-surface placeholder:text-on-surface-variant
+           focus:border-primary focus:outline-none;
   }
 
+  /* Horizontally scrolling filter chip, as on the Zomato home screen. */
   .pill {
-    @apply inline-flex h-9 items-center gap-space-xs rounded-full border border-outline-variant
+    @apply inline-flex h-9 shrink-0 items-center gap-space-xs rounded-full border border-outline
            bg-surface-container-lowest px-space-md text-label-md text-on-surface-medium
-           transition-colors hover:bg-surface-container;
+           transition-colors hover:border-on-surface-variant hover:text-on-surface;
   }
 
+  /* Selected chip: a red wash with a red edge, not a solid red block - Zomato
+     keeps the chip row quiet so the cards below stay the loudest thing. */
   .pill-active {
-    @apply border-transparent bg-primary text-on-primary hover:bg-primary-hover;
+    @apply border-primary bg-primary-tint text-primary hover:border-primary hover:text-primary;
   }
 
-  /* Micro-pill used for tags (Bestseller, Veg, Closed...). */
   .badge {
-    @apply inline-flex h-5 items-center gap-space-xs rounded-full bg-primary-tint px-space-sm
-           text-label-sm uppercase tracking-[0.02em] text-primary;
+    @apply inline-flex h-5 items-center gap-space-xs rounded px-space-sm text-label-sm
+           uppercase tracking-[0.02em] text-primary;
+    background-color: theme('colors.primary-tint');
+  }
+
+  /* The green rating/status pill. Small, high-contrast, always with a glyph. */
+  .badge-status {
+    @apply inline-flex h-[22px] items-center gap-[3px] rounded bg-success px-[6px]
+           text-label-sm text-white;
+  }
+
+  /* Muted, tracked-out row heading ("RECOMMENDED FOR YOU"). */
+  .section-eyebrow {
+    @apply text-eyebrow uppercase text-on-surface-variant;
+  }
+}
+
+@layer utilities {
+  /* Chip and category rows scroll horizontally; the bar itself is chrome the
+     design does not want, and the row is reachable by keyboard regardless. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
