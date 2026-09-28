@@ -106,3 +106,59 @@ def test_an_unsigned_token_is_refused():
     unsigned = jwt.encode(payload, key="", algorithm="none")
     with pytest.raises(jwt.PyJWTError):
         decode_token(unsigned)
+
+
+# --- Every route that issues a token must bind it to a session ---------------
+
+
+def test_create_access_token_cannot_be_called_without_a_session():
+    """The guard that makes forgetting impossible rather than merely unlikely.
+
+    Three routes issue access tokens - OTP verify, refresh, and the admin
+    password login - and a fourth could be added tomorrow. Making session_id a
+    required positional argument means a route that forgets it fails loudly at
+    the call rather than quietly minting a token that nothing can revoke, which
+    is exactly what every one of these tokens used to be.
+
+    This is worth pinning: giving session_id a default would silently restore the
+    old behaviour for any caller that omitted it.
+    """
+    import inspect
+
+    signature = inspect.signature(create_access_token)
+    session_param = signature.parameters["session_id"]
+    assert session_param.default is inspect.Parameter.empty, (
+        "session_id must stay required; a default would let a route mint an "
+        "unrevocable token by omitting it"
+    )
+
+    with pytest.raises(TypeError):
+        create_access_token(str(uuid.uuid4()))  # type: ignore[call-arg]
+
+
+def test_every_token_issuing_route_passes_a_session():
+    """Read the auth router and check each create_access_token call site.
+
+    The runtime signature above catches an omission the moment the route is
+    exercised, but a login path that only runs when ADMIN_PASSWORD_HASH is set
+    can sit untested for a long time - which is precisely the case that broke
+    when the admin password door met this change.
+    """
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "app" / "modules" / "auth" / "router.py"
+    tree = ast.parse(source.read_text())
+
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "create_access_token"
+    ]
+    assert len(calls) >= 3, f"expected the three token-issuing routes, found {len(calls)}"
+    for call in calls:
+        assert len(call.args) == 2, (
+            f"create_access_token at line {call.lineno} does not pass a session id"
+        )

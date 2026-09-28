@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     redis_url: str
 
     resend_api_key: str = ""
-    resend_from_email: str = "Hunger Birds <onboarding@resend.dev>"
+    resend_from_email: str = "Hungry Birds <onboarding@resend.dev>"
 
     jwt_secret: str
     jwt_algorithm: str = "HS256"
@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     environment: str = "production"
 
     allowed_email_domain: str = "bitmesra.ac.in"
+
+    # Lets an admin sign in with a password instead of waiting on an OTP email,
+    # which matters because the admin is the account you need when email itself
+    # is the thing that is broken. Empty disables the endpoint entirely, so the
+    # extra way in does not exist unless it is deliberately configured.
+    # Generate with: python scripts/set_admin_password.py
+    admin_password_hash: str = ""
 
     # Returns login codes in API responses. That is a complete authentication
     # bypass, so it is honoured only in development; see debug_echo_enabled.

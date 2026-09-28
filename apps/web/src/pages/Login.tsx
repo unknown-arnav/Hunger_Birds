@@ -6,10 +6,11 @@ import { Icon, Spinner } from '../components/ui';
 const ALLOWED_DOMAIN = 'bitmesra.ac.in';
 
 export default function Login() {
-  const { requestOtp, verifyOtp } = useAuth();
-  const [step, setStep] = useState<'email' | 'code'>('email');
+  const { requestOtp, verifyOtp, adminLogin } = useAuth();
+  const [step, setStep] = useState<'email' | 'code' | 'admin'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [debugCode, setDebugCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
@@ -39,6 +40,24 @@ export default function Login() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not send the code. Try again.');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signInAsAdmin(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await adminLogin(email.trim(), password);
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 404
+          ? 'Password sign-in is not enabled on this server.'
+          : err instanceof ApiError
+            ? err.message
+            : 'Could not sign in. Try again.',
+      );
       setBusy(false);
     }
   }
@@ -86,10 +105,8 @@ export default function Login() {
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-primary p-space-xl text-on-primary lg:flex">
         <div className="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
         <div className="relative flex items-center gap-space-sm">
-          <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/15">
-            <Icon name="lunch_dining" className="text-[22px]" />
-          </span>
-          <span className="text-headline-sm">Hunger Birds</span>
+          <img src="/logo.png" alt="" width={44} height={44} className="h-11 w-11" />
+          <span className="text-headline-sm">Hungry Birds</span>
         </div>
 
         <div className="relative flex flex-col gap-space-md">
@@ -121,13 +138,64 @@ export default function Login() {
       <div className="flex w-full items-center justify-center px-margin-mobile lg:w-1/2 lg:px-margin">
         <div className="w-full max-w-md">
           <div className="mb-space-lg flex items-center gap-space-sm lg:hidden">
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-on-primary">
-              <Icon name="lunch_dining" className="text-[22px]" />
-            </span>
-            <span className="text-headline-sm text-on-surface">Hunger Birds</span>
+            <img src="/logo.png" alt="" width={44} height={44} className="h-11 w-11" />
+            <span className="text-headline-sm text-on-surface">Hungry Birds</span>
           </div>
 
-          {step === 'email' ? (
+          {step === 'admin' ? (
+            <form onSubmit={signInAsAdmin} className="flex flex-col gap-space-md">
+              <div className="flex flex-col gap-space-xs">
+                <h2 className="text-headline-lg text-on-surface">Admin sign-in</h2>
+                <p className="text-body-md text-on-surface-variant">
+                  For admin accounts only. Everyone else signs in with an emailed code.
+                </p>
+              </div>
+
+              <label className="flex flex-col gap-space-xs">
+                <span className="text-label-md text-on-surface-medium">Institute email</span>
+                <input
+                  className="field"
+                  type="email"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                  placeholder={`admin@${ALLOWED_DOMAIN}`}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+
+              <label className="flex flex-col gap-space-xs">
+                <span className="text-label-md text-on-surface-medium">Password</span>
+                <input
+                  className="field"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+
+              {error && <p className="text-body-sm text-primary">{error}</p>}
+
+              <button type="submit" className="btn-primary w-full" disabled={busy}>
+                {busy ? <Spinner /> : 'Sign in'}
+              </button>
+
+              <button
+                type="button"
+                className="btn-ghost w-full"
+                onClick={() => {
+                  setStep('email');
+                  setPassword('');
+                  setError(null);
+                }}
+              >
+                Back to code sign-in
+              </button>
+            </form>
+          ) : step === 'email' ? (
             <form onSubmit={sendCode} className="flex flex-col gap-space-md">
               <div className="flex flex-col gap-space-xs">
                 <h2 className="text-headline-lg text-on-surface">Sign in</h2>
@@ -154,6 +222,17 @@ export default function Login() {
 
               <button type="submit" className="btn-primary w-full" disabled={busy}>
                 {busy ? <Spinner /> : 'Send code'}
+              </button>
+
+              <button
+                type="button"
+                className="self-center text-body-sm text-on-surface-variant underline underline-offset-2"
+                onClick={() => {
+                  setStep('admin');
+                  setError(null);
+                }}
+              >
+                Admin sign-in
               </button>
             </form>
           ) : (

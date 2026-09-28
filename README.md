@@ -1,4 +1,4 @@
-# Hunger Birds
+# Hungry Birds
 
 Campus food ordering for BIT Mesra. Students browse the food stalls on campus,
 place cash-on-delivery orders, and watch the status update live; stall owners
@@ -261,7 +261,7 @@ against `users` fails with *column users.phone does not exist*.
 | `REDIS_URL` | `${{Redis.REDIS_URL}}` — likewise |
 | `JWT_SECRET` | long random string: `openssl rand -hex 32` |
 | `RESEND_API_KEY` | from the Resend dashboard |
-| `RESEND_FROM_EMAIL` | `Hunger Birds <noreply@yourdomain>` — the domain must be verified in Resend |
+| `RESEND_FROM_EMAIL` | `Hungry Birds <noreply@yourdomain>` — the domain must be verified in Resend |
 | `CLOUDINARY_CLOUD_NAME` | optional; photos are disabled until all three are set |
 | `CLOUDINARY_API_KEY` | optional |
 | `CLOUDINARY_API_SECRET` | optional |
@@ -329,6 +329,47 @@ anything the client cares to send.
 > needs a signed **upload preset** configured in the Cloudinary dashboard,
 > pinning `resource_type` and a maximum file size; `allowed_formats` is the part
 > that can be enforced from here.
+
+## Admin sign-in without an OTP
+
+Admins can sign in with a password instead of waiting for a code. That matters
+because the admin is exactly the account you need when email is the thing that
+has broken, and a code you cannot receive is a bad way to be locked out of your
+own service.
+
+Set it up once, from `backend/`:
+
+```bash
+PYTHONPATH=. python scripts/set_admin_password.py
+```
+
+It prompts without echoing and prints a hash. Put that in Railway as
+`ADMIN_PASSWORD_HASH`. The password itself is never stored anywhere and cannot
+be recovered from the hash, so keep it in a password manager.
+
+The login page then offers **Admin sign-in** beneath the normal form.
+
+It is a second way in, so it is built like one:
+
+- **Off unless configured.** With `ADMIN_PASSWORD_HASH` empty the endpoint
+  returns 404 — the door does not exist rather than standing locked.
+- **The role is what grants access, not the password.** A customer who somehow
+  learned the password still gets 401; only an account already holding the
+  admin role can use it.
+- **One message for every failure.** Unknown address, non-admin account and
+  wrong password all return the same 401, and an unknown address spends the
+  same time as a real check, so nobody can map which addresses are admins
+  before they start guessing.
+- **Five attempts a minute, twenty an hour, per address**, and that limiter
+  *fails closed* — if Redis is unreachable the endpoint refuses rather than
+  becoming an unlimited guessing surface. A password is guessable in a way a
+  random six-digit code with a five-minute life is not.
+- Hashed with scrypt (stdlib, no new dependency), salted per password, with the
+  work factor stored alongside so it can be raised later.
+
+Nothing about the resulting session is special: it is the same rotating,
+revocable session the OTP flow issues, and it appears in *Where you're signed
+in* like any other device.
 
 ## Rate limiting
 
@@ -427,6 +468,33 @@ never goes there. The client spends it once, over a normal authenticated
 request to `POST /api/realtime/ticket`, on a ticket that is valid for 30
 seconds and destroyed the moment the socket redeems it. A ticket found in a log
 afterwards is worthless, and it can't be replayed.
+
+## Icons and branding
+
+Every icon — the web favicon and touch icons, both Android apps' launcher
+icons, and the Play Store listing image — is generated from one master by
+`design/make_icons.py`. Re-run it after changing the artwork; it is idempotent,
+so a run with no change to the master rewrites nothing.
+
+`design/logo.svg` is the supplied artwork and is **not** used at runtime. It is
+a VTracer auto-trace: 2,848 paths, 1.1MB, no viewBox, with an opaque backdrop
+baked in as a full-canvas path. That is several times the size of the entire
+web bundle, for a mark drawn at 40 pixels. `design/logo-master.png` is the
+usable form — backdrop removed, cropped to the artwork, squared. The crop is
+what makes the icon legible at 48px instead of a scattering of specks.
+
+The Android icons are both legacy and adaptive:
+
+- `mipmap-*/ic_launcher.png` — opaque and rounded, for Android 7 and below,
+  which draws a launcher icon exactly as given. A transparent one would leave
+  the bird floating with no shape behind it.
+- `mipmap-anydpi-v26/ic_launcher.xml` plus `ic_launcher_foreground.png` — the
+  adaptive icon used from Android 8 on. The launcher masks it to a circle,
+  squircle or teardrop, so the artwork sits at 62% of the 108dp canvas, inside
+  the 72dp area the system guarantees is visible.
+
+No manifest change is needed: `@mipmap/ic_launcher` resolves to the adaptive
+XML on API 26+ and to the PNGs below that.
 
 ## Things to know before going live
 
