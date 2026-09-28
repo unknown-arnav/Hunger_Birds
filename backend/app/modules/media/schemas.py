@@ -7,3 +7,5 @@ class UploadSignature(BaseModel):
     timestamp: int
     signature: str
     folder: str
+    # Part of the signed parameter set, so the client must send it back verbatim.
+    allowed_formats: str

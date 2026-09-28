@@ -78,16 +78,35 @@ def client_ip(request: Request | WebSocket, settings: Settings) -> str:
     uvicorn's default, eight requests carrying eight invented addresses each got
     their own budget.
     """
+    peer = request.client.host if request.client else None
+
     hops = settings.trusted_proxy_count
-    if hops > 0:
+    # A header only means something if whoever sent it is entitled to speak for
+    # someone else. With TRUSTED_PROXY_COUNT=1 the rightmost entry is the proxy's
+    # own observation *if the request came through the proxy* - and reading the
+    # header cannot establish that, because one forged entry looks exactly like
+    # one appended entry. TRUSTED_PROXY_HOSTS is how a deployment that is
+    # reachable by more than its proxy says so; left empty, any peer is believed,
+    # which is right on a platform whose edge is the only way in.
+    if hops > 0 and settings.peer_may_set_forwarded_for(peer):
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             parts = [p.strip() for p in forwarded.split(",") if p.strip()]
-            if parts:
-                # Clamp, so a header with fewer hops than configured falls back
-                # to the leftmost entry instead of indexing off the end.
-                return parts[max(0, len(parts) - hops)]
-    return request.client.host if request.client else "unknown"
+            # Only trust the header when it carries at least as many hops as we
+            # were told to expect. A shorter one means the request did not come
+            # through those proxies, so nothing in it was written by anything we
+            # trust and every entry is caller-supplied.
+            #
+            # This used to clamp to the leftmost entry instead, which failed in
+            # the wrong direction: a caller reaching the app without the
+            # expected hop - over private networking, or with the proxy count
+            # misconfigured - could send `X-Forwarded-For: <anything>` and get a
+            # fresh bucket on every request, which silently disables every
+            # per-IP limit in this module. Falling back to the peer address
+            # costs a shared bucket in that case and cannot be forged.
+            if len(parts) >= hops:
+                return parts[len(parts) - hops]
+    return peer or "unknown"
 
 
 async def consume(

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import limits
 from app.core.config import get_settings
+from app.core.http import MaxBodySizeMiddleware, SecurityHeadersMiddleware
 from app.core.logging import install_log_redaction
 from app.core.ratelimit import Limit, client_ip, consume, limit_by_ip
 from app.core.redis import get_redis
@@ -41,6 +42,19 @@ elif settings.otp_debug_echo:
     _startup_log.info(
         'OTP_DEBUG_ECHO is set but ignored because ENVIRONMENT is not '
         'development. Login codes will not be echoed.'
+    )
+
+_config_errors = settings.production_config_errors()
+if _config_errors:
+    for _problem in _config_errors:
+        _startup_log.error('unsafe configuration: %s', _problem)
+    # Refusing to boot is the point. A deployment signing tokens with a secret
+    # from the README is not degraded, it is unauthenticated - and a process
+    # that starts anyway would pass the healthcheck and serve traffic while
+    # anyone who has read this repository can mint an admin token.
+    raise RuntimeError(
+        'Refusing to start with unsafe production configuration: '
+        + ' '.join(_config_errors)
     )
 
 if settings.cors_origin_list == ['*']:
@@ -74,21 +88,9 @@ async def enforce_request_limits(request: Request, call_next):
     if path in _UNMETERED_PATHS or path.startswith(_UNMETERED_PREFIXES):
         return await call_next(request)
 
-    # Refuse an oversized body before anything tries to buffer or parse it.
-    declared = request.headers.get('content-length')
-    if declared is not None:
-        try:
-            if int(declared) > settings.max_request_bytes:
-                return JSONResponse(
-                    {'detail': 'Request body too large'},
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                )
-        except ValueError:
-            return JSONResponse(
-                {'detail': 'Invalid Content-Length'},
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
-
+    # Body size is enforced by MaxBodySizeMiddleware below, which counts the
+    # bytes that actually arrive. This middleware used to check Content-Length
+    # here instead, which a chunked request simply omits.
     try:
         await consume(
             get_redis(),
@@ -105,6 +107,21 @@ async def enforce_request_limits(request: Request, call_next):
 
     return await call_next(request)
 
+
+# Ordering note: add_middleware inserts at the front of the stack, so the LAST
+# call here ends up OUTERMOST. Body capping therefore wraps the rate limiter -
+# an oversized body is refused before anything else reads it - and CORS wraps
+# both, so even a 413 carries the headers a browser needs to read it.
+app.add_middleware(
+    MaxBodySizeMiddleware,
+    max_bytes=settings.max_request_bytes,
+    # Static assets and the liveness probe carry no body worth policing, and
+    # skipping them keeps the hot path free of an extra receive() hop.
+    exempt_paths=_UNMETERED_PATHS,
+    exempt_prefixes=_UNMETERED_PREFIXES,
+)
+
+app.add_middleware(SecurityHeadersMiddleware, include_hsts=not settings.is_development)
 
 app.add_middleware(
     CORSMiddleware,

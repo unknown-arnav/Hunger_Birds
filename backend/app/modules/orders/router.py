@@ -16,8 +16,12 @@ from app.db.models.user import User, UserRole
 from app.db.models.vendor import Vendor
 from app.db.session import get_db
 from app.modules.orders.schemas import OrderCreate, OrderOut, OrderStatusUpdate
-from app.modules.orders.service import can_transition, publish_order_event
-from app.modules.vendors.deps import get_own_vendor
+from app.modules.orders.service import (
+    can_customer_cancel,
+    can_transition,
+    publish_order_event,
+)
+from app.modules.vendors.deps import get_own_active_vendor
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 vendor_orders_router = APIRouter(prefix="/vendors/me/orders", tags=["orders"])
@@ -156,9 +160,16 @@ async def cancel_order(
     order = await _get_order_for_user(order_id, user, db)
     if order.customer_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the customer can cancel this order")
-    if not can_transition(order.status, OrderStatus.CANCELLED):
+    # The state machine now permits a cancellation out of preparing and ready so
+    # that a stall can release an order it cannot fill. That is a vendor move,
+    # not a customer one: once the food is being cooked the customer no longer
+    # gets to walk away, and this is the check that says so. Relying on
+    # can_transition alone here would have handed them that new exit too.
+    if not can_customer_cancel(order.status):
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Cannot cancel an order that is already {order.status.value}"
+            status.HTTP_400_BAD_REQUEST,
+            f"Cannot cancel an order that is already {order.status.value}. "
+            "Contact the stall if you need it stopped.",
         )
     order.status = OrderStatus.CANCELLED
     await db.commit()
@@ -173,7 +184,7 @@ async def cancel_order(
     dependencies=[Depends(limit_by_user("order_read", *limits.ORDER_READ))],
 )
 async def list_vendor_orders(
-    vendor: Vendor = Depends(get_own_vendor), db: AsyncSession = Depends(get_db)
+    vendor: Vendor = Depends(get_own_active_vendor), db: AsyncSession = Depends(get_db)
 ) -> list[OrderOut]:
     result = await db.execute(
         select(Order)
@@ -192,7 +203,7 @@ async def list_vendor_orders(
 async def update_order_status(
     order_id: uuid.UUID,
     payload: OrderStatusUpdate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ) -> OrderOut:

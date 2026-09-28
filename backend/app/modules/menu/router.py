@@ -17,7 +17,7 @@ from app.modules.menu.schemas import (
     ItemOut,
     ItemUpdate,
 )
-from app.modules.vendors.deps import get_own_vendor
+from app.modules.vendors.deps import get_own_active_vendor
 
 router = APIRouter(prefix="/vendors/me", tags=["menu"])
 
@@ -50,7 +50,7 @@ async def _get_own_item(vendor: Vendor, item_id: uuid.UUID, db: AsyncSession) ->
 )
 async def create_category(
     payload: CategoryCreate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryOut:
     category = MenuCategory(vendor_id=vendor.id, **payload.model_dump())
@@ -66,7 +66,7 @@ async def create_category(
     dependencies=[Depends(limit_by_user("menu_read", *limits.PROFILE_READ))],
 )
 async def list_categories(
-    vendor: Vendor = Depends(get_own_vendor), db: AsyncSession = Depends(get_db)
+    vendor: Vendor = Depends(get_own_active_vendor), db: AsyncSession = Depends(get_db)
 ) -> list[CategoryOut]:
     result = await db.execute(
         select(MenuCategory).where(MenuCategory.vendor_id == vendor.id).order_by(MenuCategory.sort_order)
@@ -82,7 +82,7 @@ async def list_categories(
 async def update_category(
     category_id: uuid.UUID,
     payload: CategoryUpdate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryOut:
     category = await _get_own_category(vendor, category_id, db)
@@ -100,7 +100,7 @@ async def update_category(
 )
 async def delete_category(
     category_id: uuid.UUID,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     category = await _get_own_category(vendor, category_id, db)
@@ -116,7 +116,7 @@ async def delete_category(
 )
 async def create_item(
     payload: ItemCreate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> ItemOut:
     if payload.category_id is not None:
@@ -135,7 +135,7 @@ async def create_item(
     dependencies=[Depends(limit_by_user("menu_read", *limits.PROFILE_READ))],
 )
 async def list_items(
-    vendor: Vendor = Depends(get_own_vendor), db: AsyncSession = Depends(get_db)
+    vendor: Vendor = Depends(get_own_active_vendor), db: AsyncSession = Depends(get_db)
 ) -> list[ItemOut]:
     result = await db.execute(select(MenuItem).where(MenuItem.vendor_id == vendor.id))
     return [ItemOut.model_validate(i) for i in result.scalars().all()]
@@ -149,7 +149,7 @@ async def list_items(
 async def update_item(
     item_id: uuid.UUID,
     payload: ItemUpdate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> ItemOut:
     item = await _get_own_item(vendor, item_id, db)
@@ -170,7 +170,7 @@ async def update_item(
 )
 async def delete_item(
     item_id: uuid.UUID,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     item = await _get_own_item(vendor, item_id, db)

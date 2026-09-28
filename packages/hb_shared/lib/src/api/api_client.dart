@@ -29,12 +29,20 @@ class UploadSignature {
   final String signature;
   final String folder;
 
+  /// Comma-separated formats the permit covers, e.g. `jpg,jpeg,png,webp`.
+  ///
+  /// This is one of the parameters the backend signed, so it has to be sent
+  /// back to Cloudinary exactly as received. Leave it out of the upload and
+  /// Cloudinary recomputes a different signature and rejects the whole request.
+  final String allowedFormats;
+
   const UploadSignature({
     required this.cloudName,
     required this.apiKey,
     required this.timestamp,
     required this.signature,
     required this.folder,
+    required this.allowedFormats,
   });
 
   factory UploadSignature.fromJson(Map<String, dynamic> json) => UploadSignature(
@@ -43,6 +51,7 @@ class UploadSignature {
         timestamp: json['timestamp'] as int,
         signature: json['signature'] as String,
         folder: json['folder'] as String,
+        allowedFormats: json['allowed_formats'] as String,
       );
 }
 

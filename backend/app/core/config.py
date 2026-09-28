@@ -1,7 +1,25 @@
 from functools import lru_cache
+from ipaddress import ip_address, ip_network
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# A forged access token is indistinguishable from a real one, so the signing
+# secret is the single thing holding up every authorisation check in the app.
+MIN_JWT_SECRET_LENGTH = 32
+
+# Substrings that mark a secret as copied from documentation rather than
+# generated. Kept to unambiguous placeholders: a real `openssl rand -hex 32`
+# value contains none of them, and a broader list would reject good secrets.
+_PLACEHOLDER_SECRET_MARKERS = (
+    "change-me",
+    "changeme",
+    "replace-me",
+    "placeholder",
+    "example",
+    "your-secret",
+    "supersecret",
+)
 
 
 class Settings(BaseSettings):
@@ -28,6 +46,18 @@ class Settings(BaseSettings):
     # Returns login codes in API responses. That is a complete authentication
     # bypass, so it is honoured only in development; see debug_echo_enabled.
     otp_debug_echo: bool = False
+
+    # Which peers are allowed to speak for someone else via X-Forwarded-For,
+    # as a comma-separated list of addresses or CIDR blocks.
+    #
+    # Empty (the default) means any peer is believed, which is correct on a
+    # platform where the app is only reachable through the platform's own edge -
+    # Railway, for instance, where nothing else can open a connection to the
+    # container from outside the project. Set it when the app is reachable by
+    # anything else, because with TRUSTED_PROXY_COUNT=1 a single forged header
+    # entry is indistinguishable from one a real proxy added: reading from the
+    # right cannot tell them apart, only knowing who connected can.
+    trusted_proxy_hosts: str = ""
 
     # How many reverse proxies sit in front of this app. Railway is exactly one.
     # Used to find the real client address for rate limiting without trusting
@@ -84,6 +114,70 @@ class Settings(BaseSettings):
         that mistake is inert.
         """
         return self.otp_debug_echo and self.is_development
+
+    @property
+    def trusted_proxy_networks(self) -> tuple:
+        """The configured peers, parsed. Unparseable entries are dropped."""
+        networks = []
+        for raw in self.trusted_proxy_hosts.split(","):
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            try:
+                networks.append(ip_network(candidate, strict=False))
+            except ValueError:
+                continue
+        return tuple(networks)
+
+    def peer_may_set_forwarded_for(self, peer: str | None) -> bool:
+        """Whether a header from this peer should be believed at all.
+
+        With no allow-list configured this is always true, which keeps the
+        behaviour a platform deployment depends on. Once one is configured, a
+        connection from anywhere else has its X-Forwarded-For ignored and is
+        rate limited on the address it actually came from.
+        """
+        networks = self.trusted_proxy_networks
+        if not networks:
+            return True
+        if peer is None:
+            return False
+        try:
+            address = ip_address(peer)
+        except ValueError:
+            return False
+        return any(address in network for network in networks)
+
+    def production_config_errors(self) -> list[str]:
+        """Configuration that must not reach a public deployment.
+
+        Checked at startup rather than as a pydantic validator so unit tests can
+        still build a Settings object cheaply, and so the message names every
+        problem at once instead of failing on the first.
+        """
+        if self.is_development:
+            return []
+
+        errors: list[str] = []
+        secret = self.jwt_secret.strip()
+
+        if len(secret) < MIN_JWT_SECRET_LENGTH:
+            errors.append(
+                f"JWT_SECRET is {len(secret)} characters long; at least "
+                f"{MIN_JWT_SECRET_LENGTH} are required outside development. "
+                "Generate one with `openssl rand -hex 32`."
+            )
+
+        lowered = secret.lower()
+        if any(marker in lowered for marker in _PLACEHOLDER_SECRET_MARKERS):
+            errors.append(
+                "JWT_SECRET looks like a placeholder from documentation rather "
+                "than a generated secret. Anyone who can read it can sign a "
+                "token for any account, including an admin. Generate one with "
+                "`openssl rand -hex 32`."
+            )
+
+        return errors
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -72,11 +72,33 @@ def test_two_trusted_proxies_look_one_hop_further_left():
     assert client_ip(request, settings(trusted_proxy_count=2)) == "203.0.113.9"
 
 
-def test_short_header_does_not_index_off_the_end():
-    # Fewer hops present than configured (a direct hit on the app behind the
-    # proxy, say). Must degrade, not raise.
+def test_a_header_shorter_than_the_trusted_hop_count_is_ignored():
+    """Fewer hops present than configured, so the header is not to be believed.
+
+    This used to clamp to the leftmost entry and return it, which was a bypass
+    rather than a graceful degradation: a caller reaching the app without the
+    expected proxy hop - over Railway's private networking, or with
+    TRUSTED_PROXY_COUNT set higher than the real number of hops - could put any
+    value in the header and be counted as a different client on every request,
+    which silently switches off every per-IP limit in the module.
+
+    Falling back to the peer address is the safe direction. The cost is that
+    callers genuinely sharing that address share a bucket; the alternative cost
+    was having no limits at all.
+    """
     request = FakeRequest({"x-forwarded-for": "203.0.113.9"}, peer="10.0.0.1")
-    assert client_ip(request, settings(trusted_proxy_count=3)) == "203.0.113.9"
+    assert client_ip(request, settings(trusted_proxy_count=3)) == "10.0.0.1"
+
+
+def test_a_forged_header_cannot_buy_a_fresh_bucket_without_the_proxy():
+    """The bypass the fallback above closes, stated as the attack.
+
+    Every one of these reaches the app without the hop TRUSTED_PROXY_COUNT
+    promises, so none of them may be allowed to change the identity.
+    """
+    for forged in ("1.2.3.4", "9.9.9.9", "not-an-ip", "  ,  "):
+        request = FakeRequest({"x-forwarded-for": forged}, peer="10.0.0.1")
+        assert client_ip(request, settings(trusted_proxy_count=2)) == "10.0.0.1"
 
 
 def test_missing_header_and_missing_peer_still_yields_an_identity():
@@ -162,3 +184,64 @@ async def test_fails_closed_where_the_limit_is_the_security_control():
             BrokenRedis(), "unit", "someone", (Limit(1, MINUTE),), fail_open=False
         )
     assert exc.value.status_code == 503
+
+
+# --- Who is allowed to speak for someone else -------------------------------
+#
+# Counting hops from the right defeats a *prepended* forgery, because a real
+# proxy appends its own observation after it. What it cannot defeat on its own is
+# a request that never passed through that proxy: with one trusted hop, a single
+# forged entry and a single appended entry are the same header. Only the identity
+# of the peer distinguishes them, which is what TRUSTED_PROXY_HOSTS supplies.
+
+
+def test_any_peer_is_believed_when_no_allow_list_is_configured():
+    """The default, and what a platform deployment relies on.
+
+    Railway's edge is the only route into the container, so the entry it appends
+    is trustworthy without having to name the proxy's address.
+    """
+    request = FakeRequest({"x-forwarded-for": "203.0.113.9"}, peer="10.0.0.1")
+    assert client_ip(request, settings(trusted_proxy_count=1)) == "203.0.113.9"
+
+
+def test_a_configured_proxy_is_still_believed():
+    request = FakeRequest({"x-forwarded-for": "203.0.113.9"}, peer="10.0.0.7")
+    config = settings(trusted_proxy_count=1, trusted_proxy_hosts="10.0.0.0/8")
+    assert client_ip(request, config) == "203.0.113.9"
+
+
+def test_an_unlisted_peer_cannot_forge_an_identity():
+    """The case reading-from-the-right cannot catch by itself.
+
+    One trusted hop, one header entry, and nothing in front of the app: the entry
+    is the caller's invention. Every forgery below must collapse to the address
+    the connection actually came from, or the caller gets a fresh rate-limit
+    budget per request and every per-IP limit is off.
+    """
+    config = settings(trusted_proxy_count=1, trusted_proxy_hosts="10.0.0.0/8")
+    for forged in ("1.2.3.4", "9.9.9.9", "203.0.113.9, 198.51.100.1", "not-an-ip"):
+        request = FakeRequest({"x-forwarded-for": forged}, peer="198.51.100.77")
+        assert client_ip(request, config) == "198.51.100.77", forged
+
+
+def test_a_single_host_may_be_listed_without_a_mask():
+    config = settings(trusted_proxy_count=1, trusted_proxy_hosts="10.0.0.7")
+    trusted = FakeRequest({"x-forwarded-for": "203.0.113.9"}, peer="10.0.0.7")
+    other = FakeRequest({"x-forwarded-for": "203.0.113.9"}, peer="10.0.0.8")
+    assert client_ip(trusted, config) == "203.0.113.9"
+    assert client_ip(other, config) == "10.0.0.8"
+
+
+def test_a_garbled_allow_list_entry_does_not_open_the_gate():
+    """A typo must not silently mean "trust everyone" - it means trust the rest
+    of the list, and this peer is not on it."""
+    config = settings(trusted_proxy_count=1, trusted_proxy_hosts="not-a-network, 10.0.0.0/8")
+    assert config.trusted_proxy_networks and len(config.trusted_proxy_networks) == 1
+    request = FakeRequest({"x-forwarded-for": "1.2.3.4"}, peer="198.51.100.77")
+    assert client_ip(request, config) == "198.51.100.77"
+
+
+def test_an_unknown_peer_with_an_allow_list_is_not_trusted():
+    config = settings(trusted_proxy_count=1, trusted_proxy_hosts="10.0.0.0/8")
+    assert client_ip(FakeRequest({"x-forwarded-for": "1.2.3.4"}, peer=None), config) == "unknown"
