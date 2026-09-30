@@ -47,97 +47,92 @@ export default function Discover() {
   const firstName = user?.full_name?.split(' ')[0];
 
   return (
-    <div className="mx-auto max-w-content px-margin-mobile py-space-lg md:px-margin md:py-space-xl">
-      {/* Hero */}
-      <section className="relative mb-space-xl overflow-hidden rounded-xl bg-surface-container-lowest p-space-lg shadow-card md:p-space-xl">
-        <div className="pointer-events-none absolute -right-20 -top-24 h-96 w-96 rounded-full bg-primary/5 blur-3xl" />
-        <div className="relative z-10 flex flex-col gap-space-md">
-          <span className="inline-flex w-fit items-center gap-space-xs rounded-full bg-primary/10 px-space-sm py-space-xs text-label-sm uppercase tracking-wider text-primary">
-            <Icon name="bolt" className="text-[18px]" />
-            Order ahead, skip the queue
-          </span>
-
-          <h1 className="max-w-2xl text-display-hero-mobile tracking-tight text-on-surface md:text-display-hero">
-            {firstName ? `Hungry, ${firstName}?` : 'Hungry?'}{' '}
-            <span className="italic text-primary">Order before you walk over.</span>
+    <div className="pb-space-xl">
+      {/* The red band continues out of the header, so the search sits inside
+          the brand strip rather than starting the dark page. This is the one
+          loud element; everything below it stays quiet. */}
+      <section className="bg-primary pb-space-lg md:pb-space-md">
+        <div className="mx-auto max-w-content px-margin-mobile md:px-margin">
+          <h1 className="pb-space-md text-display-hero-mobile text-white md:text-headline-lg">
+            {firstName ? `Hungry, ${firstName}?` : 'Hungry?'}
           </h1>
 
-          <p className="max-w-xl text-body-md text-on-surface-variant md:text-body-lg">
-            Campus stalls start cooking the moment they accept. You'll see it go from accepted to
-            ready, then collect and pay at the counter.
-          </p>
-
-          <div className="mt-space-xs flex max-w-xl items-center gap-space-xs rounded-full bg-surface-container p-space-xs">
-            <span className="material-symbols-outlined pl-space-sm text-[22px] text-primary">
-              search
-            </span>
+          {/* Capped, because a search field stretched across 1200px of red
+              reads as a banner rather than as something to type into. */}
+          <label className="flex h-14 max-w-2xl items-center gap-space-sm rounded-xl bg-surface-container-lowest px-space-md">
+            <Icon name="search" className="text-[22px] text-primary" />
             <input
-              className="w-full bg-transparent px-space-sm text-body-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none"
-              placeholder="Search stalls or dishes..."
+              className="w-full bg-transparent text-body-md text-on-surface placeholder:text-on-surface-variant focus:outline-none"
+              placeholder="Search stalls or dishes"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-          </div>
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+              >
+                <Icon name="close" className="text-[18px]" />
+              </button>
+            )}
+          </label>
         </div>
       </section>
 
-      {/* Filter bar */}
-      <div className="mb-space-lg flex flex-wrap items-center gap-space-sm rounded-lg border border-outline-variant bg-surface-container-lowest px-space-md py-space-sm">
-        <span className="text-label-sm uppercase tracking-wide text-on-surface-variant">
-          Filters:
-        </span>
-        <button
-          type="button"
-          onClick={() => setFilter('all')}
-          className={`pill ${filter === 'all' ? 'pill-active' : ''}`}
-        >
-          All stalls
-        </button>
-        <button
-          type="button"
-          onClick={() => setFilter('open')}
-          className={`pill ${filter === 'open' ? 'pill-active' : ''}`}
-        >
-          <Icon name="schedule" className="text-[16px]" />
-          Open now
-        </button>
-        {vendors && (
-          <span className="ml-auto text-label-md text-on-surface-variant">
-            {openCount} {openCount === 1 ? 'stall' : 'stalls'} open right now
-          </span>
+      <div className="mx-auto max-w-content px-margin-mobile md:px-margin">
+        {/* Chip row. Horizontally scrolling on a narrow screen, the way the
+            app's filter row behaves. */}
+        <div className="no-scrollbar -mx-margin-mobile flex gap-space-sm overflow-x-auto px-margin-mobile py-space-lg md:mx-0 md:px-0">
+          <button
+            type="button"
+            onClick={() => setFilter('all')}
+            className={`pill ${filter === 'all' ? 'pill-active' : ''}`}
+          >
+            All stalls
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('open')}
+            className={`pill ${filter === 'open' ? 'pill-active' : ''}`}
+          >
+            <Icon name="schedule" className="text-[16px]" />
+            Open now
+          </button>
+          {vendors && vendors.length > 0 && (
+            <span className="pill pointer-events-none border-transparent bg-transparent text-on-surface-variant">
+              {openCount} of {vendors.length} open
+            </span>
+          )}
+        </div>
+
+        <h2 className="section-eyebrow pb-space-md">
+          {filter === 'open' ? 'Open right now' : 'Stalls on campus'}
+        </h2>
+
+        {error ? (
+          <ErrorRetry message={error} onRetry={load} />
+        ) : !vendors ? (
+          <PageLoader />
+        ) : visible.length === 0 ? (
+          <EmptyState
+            icon="storefront"
+            title={query ? 'Nothing matched that' : 'No stalls yet'}
+            message={
+              query
+                ? 'Try a different search, or clear the filters.'
+                : 'Once an admin approves the first stall, it shows up here.'
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-2 gap-x-space-md gap-y-space-lg lg:grid-cols-4">
+            {visible.map((vendor) => (
+              <StallCard key={vendor.id} vendor={vendor} />
+            ))}
+          </div>
         )}
       </div>
-
-      <div className="mb-space-md flex items-end justify-between">
-        <div>
-          <h2 className="text-headline-md text-on-surface">Stalls on campus</h2>
-          <p className="text-body-sm text-on-surface-variant">
-            Tap a stall to see today's menu.
-          </p>
-        </div>
-      </div>
-
-      {error ? (
-        <ErrorRetry message={error} onRetry={load} />
-      ) : !vendors ? (
-        <PageLoader />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          icon="storefront"
-          title={query ? 'Nothing matched that' : 'No stalls yet'}
-          message={
-            query
-              ? 'Try a different search, or clear the filters.'
-              : 'Once an admin approves the first stall, it shows up here.'
-          }
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-space-md sm:grid-cols-2 lg:grid-cols-4">
-          {visible.map((vendor) => (
-            <StallCard key={vendor.id} vendor={vendor} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

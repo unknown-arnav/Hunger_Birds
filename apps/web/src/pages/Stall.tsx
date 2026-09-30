@@ -253,7 +253,7 @@ export default function Stall() {
           </div>
           <span
             className={`inline-flex h-8 items-center gap-space-xs rounded-full px-space-md text-label-md ${
-              vendor.is_open ? 'bg-success text-white' : 'bg-on-surface/85 text-white'
+              vendor.is_open ? 'bg-success text-white' : 'bg-black/75 text-white'
             }`}
           >
             <Icon name={vendor.is_open ? 'check_circle' : 'bedtime'} className="text-[16px]" />

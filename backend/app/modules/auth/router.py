@@ -98,7 +98,7 @@ async def otp_verify(
         await db.commit()
         await db.refresh(user)
 
-    _, refresh_token = await create_session(
+    session, refresh_token = await create_session(
         user.id,
         db,
         lifetime_days=settings.refresh_token_expire_days,
@@ -106,7 +106,7 @@ async def otp_verify(
     )
 
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), str(session.id)),
         refresh_token=refresh_token,
         user=UserOut.model_validate(user),
     )
@@ -138,7 +138,7 @@ async def refresh_token(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please sign in again")
 
     return AccessTokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), str(session.id)),
         refresh_token=new_refresh,
         user=UserOut.model_validate(user),
     )
@@ -191,20 +191,24 @@ async def admin_login(
     if not verify_password(payload.password, settings.admin_password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
-    _, refresh_token = await create_session(
+    session, refresh_token = await create_session(
         user.id,
         db,
         lifetime_days=settings.refresh_token_expire_days,
         user_agent=request.headers.get("user-agent"),
     )
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), str(session.id)),
         refresh_token=refresh_token,
         user=UserOut.model_validate(user),
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(limit_by_ip("logout", *limits.LOGOUT_PER_IP))],
+)
 async def logout(payload: RefreshRequest, db: AsyncSession = Depends(get_db)) -> Response:
     """End this device's session.
 

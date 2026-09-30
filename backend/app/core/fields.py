@@ -33,20 +33,27 @@ Note = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
 
 
 def _http_url(value: str) -> str:
-    """Only http(s), so a stored URL cannot carry a scheme that does something
-    when a client follows it.
+    """Only https, so a stored URL cannot carry a scheme that does something
+    when a client follows it - and cannot downgrade the page that renders it.
 
-    Images are uploaded to Cloudinary and the returned URL is handed back to
-    us, so in normal use this is always https. It is validated because the
-    field is client-supplied and ends up in an <img src> on every customer's
-    screen - `javascript:` and `data:` have no business there.
+    Images are uploaded to Cloudinary and the returned secure_url is handed back
+    to us, so in normal use this is always https already. It is validated because
+    the field is client-supplied and ends up in an <img src> on every customer's
+    screen: `javascript:` and `data:` have no business there, and a plain http
+    URL turns every page showing that stall into mixed content, which browsers
+    either block or flag.
     """
-    if not value.startswith(("http://", "https://")):
-        raise ValueError("must be an http(s) URL")
+    if not value.startswith("https://"):
+        raise ValueError("must be an https URL")
     return value
 
 
-# 1024 matches the String(1024) image columns.
+# 1024 matches the String(1024) image columns. The host is deliberately not
+# pinned to Cloudinary: a stall may already be pointing at an image hosted
+# elsewhere, and breaking those rows is worse than the little this would buy.
+# Note the consequence - whoever hosts that image sees the IP and Referer of
+# every customer who views the stall - which is why Referrer-Policy is set in
+# app/core/http.py.
 ImageUrl = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1024),

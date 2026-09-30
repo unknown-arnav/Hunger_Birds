@@ -38,6 +38,13 @@ TOKEN_REFRESH_PER_IP = (Limit(20, MINUTE),)
 # endpoint refuses rather than becoming unlimited.
 ADMIN_LOGIN_PER_IP = (Limit(5, MINUTE), Limit(20, HOUR))
 
+# Signing out is deliberately unauthenticated - the refresh token is itself the
+# proof - which also makes it an unauthenticated route that queries the database
+# twice per call, once on each of two indexed columns. It was the one endpoint
+# with nothing but the blanket ceiling above it. Generous, because a client
+# retrying a sign-out on a flaky connection must not be turned away.
+LOGOUT_PER_IP = (Limit(30, MINUTE),)
+
 # --- Profile ----------------------------------------------------------------
 PROFILE_READ = (Limit(120, MINUTE),)
 PROFILE_WRITE = (Limit(20, MINUTE),)

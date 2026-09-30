@@ -12,7 +12,7 @@ from app.db.models.user import User, UserRole
 from app.db.models.vendor import Vendor
 from app.db.session import get_db
 from app.modules.menu.schemas import CategoryWithItems, ItemOut
-from app.modules.vendors.deps import get_own_vendor
+from app.modules.vendors.deps import get_own_active_vendor, get_own_vendor
 from app.modules.vendors.schemas import VendorApply, VendorDetailOut, VendorOut, VendorUpdate
 
 router = APIRouter(prefix="/vendors", tags=["vendors"])
@@ -58,7 +58,7 @@ async def get_my_vendor(vendor: Vendor = Depends(get_own_vendor)) -> VendorOut:
 )
 async def update_my_vendor(
     payload: VendorUpdate,
-    vendor: Vendor = Depends(get_own_vendor),
+    vendor: Vendor = Depends(get_own_active_vendor),
     db: AsyncSession = Depends(get_db),
 ) -> VendorOut:
     for field, value in payload.model_dump(exclude_unset=True).items():

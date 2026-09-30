@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
+import BottomNav from './components/BottomNav';
 import { EmptyState, PageLoader } from './components/ui';
 import { useAuth } from './state/AuthContext';
 import Login from './pages/Login';
@@ -19,7 +20,10 @@ function Shell({ children }: { children: ReactNode }) {
       <Header />
       {/* Offset the fixed 80px header. */}
       <main className="flex-1 pt-20">{children}</main>
-      <Footer />
+      <div className="pb-24 xl:pb-0">
+        <Footer />
+      </div>
+      <BottomNav />
     </div>
   );
 }

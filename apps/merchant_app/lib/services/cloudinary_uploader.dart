@@ -21,6 +21,10 @@ class CloudinaryUploader {
       ..fields['timestamp'] = signature.timestamp.toString()
       ..fields['signature'] = signature.signature
       ..fields['folder'] = signature.folder
+      // Signed by the backend, so it must travel with the upload verbatim -
+      // Cloudinary signs over every parameter it receives, and a missing one
+      // makes the signature it computes disagree with ours.
+      ..fields['allowed_formats'] = signature.allowedFormats
       ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
 
     final streamed = await request.send();

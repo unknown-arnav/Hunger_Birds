@@ -49,11 +49,14 @@ export function dayAndTime(iso: string): string {
 
 /** Deterministic fallback art so stalls without a photo still look intentional. */
 export function placeholderGradient(seed: string): string {
+  // Deep, desaturated warms. The light-theme pastels these replace were near
+  // white, which on a near-black page read as a hole punched in the grid rather
+  // than as a photo that had not loaded.
   const warm = [
-    'from-[#FFEBEE] to-[#FFCDD2]',
-    'from-[#FFF3E0] to-[#FFE0B2]',
-    'from-[#FBE9E7] to-[#FFCCBC]',
-    'from-[#FFF8E1] to-[#FFECB3]',
+    'from-[#4A1D1F] to-[#2A1112]',
+    'from-[#4A2F17] to-[#2A1A0E]',
+    'from-[#43231C] to-[#26140F]',
+    'from-[#4A3520] to-[#291C11]',
   ];
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;

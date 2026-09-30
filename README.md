@@ -29,15 +29,34 @@ Resend. Verifying the code issues a JWT access/refresh pair. Only
 away (`me+1@…` and `me@…` are the same account) so one person can't spin up
 unlimited accounts.
 
+Access tokens carry the id of the session that issued them, and every
+authenticated request checks that the session is still live. That is what makes
+signing out mean something: revoking a session ends its access token on the next
+request rather than leaving it usable until it expires on its own.
+
 **Vendors.** Anyone can apply to run a stall, but the stall stays invisible to
 students until an admin approves it. Approved stalls also carry an
 open/closed switch the owner controls from their app.
+
+Approval gates what a stall can *do*, not just what students can see: a stall
+that is pending review or has been suspended can read its own record - so the
+app can tell the owner they are pending - and nothing else. It cannot reach its
+orders (and the customer names and phone numbers on them), move an order through
+the status machine, edit its menu, reopen itself, or mint an image-upload permit.
 
 **Orders.** A cart holds items from one stall. Placing an order snapshots each
 item's name and price, so later menu edits never rewrite order history. Status
 moves through an explicit state machine — `placed → accepted → preparing →
 ready → completed`, with `rejected`/`cancelled` as terminal branches — and
 invalid jumps are rejected by the API.
+
+Who may cancel is narrower than what the state machine allows. A customer can
+cancel up to `accepted`; once the food is being made, they cannot. The stall can
+cancel from any non-terminal state, so it always has a way to release an order it
+cannot fill, and an admin can force-cancel one with
+`POST /api/admin/orders/{id}/cancel`. Without those two exits an order that
+reached `preparing` could only be advanced by the stall, so a stall that went
+quiet left the customer holding an order nobody was able to close.
 
 **Realtime.** Every status change publishes to Redis pub/sub. The customer's
 tracking screen subscribes to `order:{id}` and the merchant's queue to
@@ -248,11 +267,20 @@ against `users` fails with *column users.phone does not exist*.
 | `CLOUDINARY_API_SECRET` | optional |
 | `CORS_ORIGINS` | your own domain, e.g. `https://hungerbirds.food`. Leave unset for none at all — correct when the backend serves the web app, which it does |
 
+`JWT_SECRET` is checked at startup: outside development the app **refuses to
+boot** on a secret shorter than 32 characters or one that looks like a
+placeholder copied from this README. A forged access token is indistinguishable
+from a real one, so a deployment signing with a guessable secret is not degraded,
+it is unauthenticated — and it would otherwise start cleanly, pass the
+healthcheck and serve traffic while anyone who had read this repository could
+mint an admin token.
+
 Everything else defaults safely and only needs setting to change it:
 `ALLOWED_EMAIL_DOMAIN` (`bitmesra.ac.in`), `ENVIRONMENT` (`production`),
 `OTP_DEBUG_ECHO` (`false`), `TRUSTED_PROXY_COUNT` (`1`, which is right for
-Railway), `MAX_REQUEST_BYTES` (256 KB) and the two `GLOBAL_RATE_LIMIT_*`
-values.
+Railway), `TRUSTED_PROXY_HOSTS` (empty, which is right for Railway — see the
+rate-limiting notes), `MAX_REQUEST_BYTES` (256 KB) and the two
+`GLOBAL_RATE_LIMIT_*` values.
 
 > **Never set `OTP_DEBUG_ECHO=true` on a public URL.** It returns the login
 > code in the API response, which lets anyone sign in as anyone. It exists so
@@ -290,7 +318,17 @@ flutter run --dart-define=API_BASE_URL=https://<your-service>.up.railway.app/api
 
 Images upload straight from the phone to Cloudinary using a short-lived
 signature minted by `GET /media/signature`, so image bytes never pass through
-the backend.
+the backend. Only an approved stall or an admin can mint one — each signature is
+a write permit against the Cloudinary account, and there is no reason for every
+student with a login to hold one. The signature covers the timestamp, the folder
+and an `allowed_formats` list, so the permit is for images rather than for
+anything the client cares to send.
+
+> Cloudinary excludes `resource_type` from the parameters it signs, so a
+> signature can still be aimed at the raw or video endpoints. Closing that off
+> needs a signed **upload preset** configured in the Cloudinary dashboard,
+> pinning `resource_type` and a maximum file size; `allowed_formats` is the part
+> that can be enforced from here.
 
 ## Admin sign-in without an OTP
 
@@ -351,6 +389,10 @@ hunted through the routers. Each is sized by the harm it prevents:
   and take image hosting down for every stall.
 - **Public browsing** is capped per address; the stall detail endpoint loads a
   whole menu per call, so it is the cheapest way to put load on the database.
+- **Signing out** is limited per address. It is deliberately unauthenticated —
+  the refresh token is itself the proof — which also makes it the one route where
+  an anonymous caller can make the database do work, so it does not get to rely
+  on the blanket ceiling alone.
 - **A blanket per-IP ceiling** sits under all of it, to catch a client that
   spreads abuse across many endpoints to stay below each individual limit.
 
@@ -372,6 +414,50 @@ Two things that are easy to get wrong and are asserted by tests
   is the whole hole; the codes live in Redis anyway, so those endpoints cannot
   work without it. Every other limit fails open, so a Redis blip doesn't take
   the app down.
+- `X-Forwarded-For` is believed only when it carries **at least**
+  `TRUSTED_PROXY_COUNT` entries. A shorter header means the request did not come
+  through the proxies configured, so nothing in it was written by anything
+  trusted and the peer address is used instead. It used to fall back to the
+  header's leftmost entry, which is the forgeable one — so a caller reaching the
+  app without the expected hop could put any value there and be counted as a
+  different client on every request.
+
+  Note what counting hops can and cannot do. It defeats a *prepended* forgery,
+  because a real proxy appends its own observation to the right of whatever the
+  caller sent. It cannot, by itself, tell a one-entry header a proxy added from a
+  one-entry header a caller invented — those are the same bytes. What
+  distinguishes them is who opened the connection, which is what
+  `TRUSTED_PROXY_HOSTS` is for. Leaving it empty is correct on Railway, where the
+  platform edge is the only route to the container; set it if the app is
+  reachable any other way.
+
+## Request and response hardening
+
+**Body size.** Bodies over `MAX_REQUEST_BYTES` (256 KB) are refused with a 413,
+counted as the bytes actually arrive rather than read off the `Content-Length`
+header. That distinction is the whole point: a request sent with
+`Transfer-Encoding: chunked` carries no `Content-Length` at all, so a
+declared-size check has nothing to look at and waves it through — 40 MB went
+through unauthenticated before this was counted properly. Reading stops at the
+limit, so an oversized request costs the cap and not what the sender chose to
+send.
+
+**Response headers.** Every response carries a Content-Security-Policy and the
+usual companions (`nosniff`, `DENY`, `Referrer-Policy`,
+`Cross-Origin-Opener-Policy`, `Permissions-Policy`, and HSTS outside
+development). The policy is worth more here than it looks: tokens live in
+`localStorage`, so an injected script would be able to read them, and
+`script-src 'self'` is what stands between a future HTML-injection bug and a
+session. The built `index.html` carries no inline script, so nothing needs a
+nonce. `style-src` does allow inline, because React writes a handful of
+`style={{…}}` props out as style attributes — a much smaller concession than
+inline script would be.
+
+`img-src` permits any https host, because a stall's `image_url` is
+vendor-supplied and may point anywhere. The consequence is that whoever hosts
+that image sees the IP and `Referer` of every customer who views the stall, which
+is part of why `Referrer-Policy` is set. Image URLs must be https: a plain-http
+one turns every page showing that stall into mixed content.
 
 ## Live updates
 
@@ -424,3 +510,8 @@ XML on API 26+ and to the PNGs below that.
 - **Distributing the apps** is not covered here. Android can be sideloaded as
   an APK; iOS requires an Apple Developer account ($99/yr) even for TestFlight.
 - **No ratings or reviews** — deliberately out of scope for the first version.
+- **Keep the Python dependencies current.** `pip-audit -r backend/requirements.txt`
+  is the check. Starlette in particular matters more than it looks: this service
+  serves the customer web app from `backend/static` through `FileResponse` and
+  `StaticFiles`, so a `FileResponse` advisory is one this app is exposed to
+  directly, and `/assets/` is exempt from rate limiting by design.
